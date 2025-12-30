@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout
@@ -21,6 +22,12 @@ jobs:
           VERSION=$(echo "$RELEASE_JSON" | jq -r '.tag_name' | sed 's/^v//')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Latest version: $VERSION"
+
+          # Check if VERSION is null or empty
+          if [ "$VERSION" = "null" ] || [ -z "$VERSION" ]; then
+            echo "Error: Failed to get version from GitHub API"
+            exit 1
+          fi
 
       - name: Get current version
         id: current
@@ -48,11 +55,28 @@ jobs:
           echo "Updated Casks/banzai.rb:"
           cat Casks/banzai.rb
 
-      - name: Commit and push
+      - name: Create Pull Request
         if: steps.release.outputs.version != steps.current.outputs.version
         run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          BRANCH="update-banzai-v${VERSION}"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create and switch to new branch
+          git checkout -b "$BRANCH"
+
+          # Commit changes
           git add Casks/banzai.rb
-          git commit -m "Update banzai to v${{ steps.release.outputs.version }}"
-          git push
+          git commit -m "Update banzai to v${VERSION}"
+
+          # Push to remote
+          git push -u origin "$BRANCH"
+
+          # Create draft PR
+          gh pr create --base main -d -a 'naofumi-fujii' \
+            --title "Update banzai to v${VERSION}" \
+            --body "Updates banzai cask to version ${VERSION}"
+        env:
+          GH_TOKEN: ${{ github.token }}
